@@ -1,28 +1,24 @@
 # Enhanced SABRE Algorithm for Qubit Mapping on NISQ Devices
 
-## Project Overview
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-This project enhances the SABRE (SWAP-based BidiREctional heuristic search) algorithm for qubit mapping on NISQ devices, based on the paper ["Tackling the Qubit Mapping Problem for NISQ-Era Quantum Devices"](https://arxiv.org/pdf/1809.02573.pdf) by Li, Ding, and Xie. The original implementation is based on the code from (https://github.com/Kaustuvi/quantum-qubit-mapping). The implementation now includes several critical improvements for better performance and reliability.
+This project implements an improved version of the **SWAP-based BidiREctional heuristic search algorithm (SABRE)** for qubit mapping on NISQ-era quantum devices, based on the original paper by Li, Ding, and Xie ([arXiv:1809.02573](https://arxiv.org/abs/1809.02573)). The original implementation is based on the code from (https://github.com/Kaustuvi/quantum-qubit-mapping).
 
-## Key Enhancements
+## Key Improvements
 
-1. **Physical Qubit Mapping**
-   - Fixed logical-to-physical qubit translation in final circuit output
-   - Added helper methods for consistent qubit mapping throughout execution
+### 1. Fixed Implementation Issues
+- **Correct Physical Qubit Labeling**: Ensured final program uses proper physical qubit indices
+- **Optimized SWAP Selection**: Now selects a single best SWAP per iteration instead of one per front-layer gate
+- **Decay Parameter Fix**: Properly maintains decay values throughout execution
+- **Adjacent SWAP Cancellation**: Detects and removes redundant SWAP sequences (A-B followed by B-A)
 
-2. **Optimized SWAP Selection**
-   - Implemented single best-SWAP selection per iteration
-   - Reduced unnecessary SWAP operations that caused mapping thrashing
-
-3. **Improved Heuristic Scoring**
-   - Fixed decay parameter implementation
-   - Enhanced scoring mechanism for more optimal SWAP selection
-
-4. **Robust Benchmarking**
-   - Added timeout mechanism for heuristic evaluation
-   - Comprehensive performance metrics collection
-   - Automated report generation with visualizations
-
-5. **Verification Tools**
-   - Enhanced circuit validation methods
-   - Added assertion checks for physical qubit constraints
+### 2. Enhanced Heuristics
+Implemented and tested several heuristic approaches:
+- **Critical Path Heuristic**: Prioritizes gates on the critical path
+- **Entanglement-Aware Heuristic**: Considers qubit entanglement patterns
+- **Lookahead Window Heuristic**: Evaluates future gate dependencies
+- **Hybrid Lexicographic Heuristic (hybrid_lexi)**: Our novel state-aware approach combining:
+  - Immediate gate distance (local optimization)
+  - Extended successor gate distance (temporal awareness)
+  - Global qubit ordering improvement (structural optimization)
