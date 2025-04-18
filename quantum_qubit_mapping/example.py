@@ -4,7 +4,6 @@ import networkx as nx
 from sabre_tools.sabre import SABRE
 
 from sabre_tools.circuit_preprocess import preprocess_input_circuit, get_initial_mapping, get_distance_matrix
-    
 
 #inputs
 original_circuit = Program()
@@ -16,7 +15,7 @@ original_circuit.inst(CNOT(2, 3))
 original_circuit.inst(CNOT(0, 3)) #logical qubits
 
 coupling_graph = nx.Graph()
-coupling_graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)]) #nodes are physical qubits
+coupling_graph.add_edges_from([(0, 1), (1, 2), (2, 3)]) #nodes are physical qubits
 
 initial_mapping = get_initial_mapping(circuit=original_circuit, coupling_graph=coupling_graph)
 distance_matrix = get_distance_matrix(coupling_graph=coupling_graph)
