@@ -5,7 +5,6 @@ from pyquil.gates import Gate, SWAP
 from pyquil.quilbase import Qubit  
 import numpy as np
 
-
 class SABRE:
     """
     SABRE mapper as described in
@@ -13,10 +12,6 @@ class SABRE:
     (Li et al., 2019).  After the rewrites, every instruction stored in the
     output program is labelled with *physical* qubit indices.
     """
-
-    # ---------------------------------------------------------------------
-    #  Construction helpers
-    # ---------------------------------------------------------------------
 
     def __init__(
         self,
@@ -27,10 +22,6 @@ class SABRE:
         self.distance_matrix = distance_matrix
         self.coupling_graph = coupling_graph
         self.heuristic = heuristic
-
-    # ---------------------------------------------------------------------
-    #  Internal utilities
-    # ---------------------------------------------------------------------
 
     @staticmethod
     def _to_int(q) -> int:
@@ -59,14 +50,8 @@ class SABRE:
         """
         ql1, ql2 = self._gate_qubits(swap_gate_logical)
         qp1, qp2 = mapping[ql1], mapping[ql2]
-        # update mapping
         mapping[ql1], mapping[ql2] = qp2, qp1
-        # return physical instruction for the output program
         return SWAP(qp1, qp2)
-
-    # ---------------------------------------------------------------------
-    #  Main algorithm
-    # ---------------------------------------------------------------------
 
     def execute_sabre_algorithm(
         self,
@@ -83,12 +68,10 @@ class SABRE:
         final_prog = Program()
 
         while front_layer_gates:
-            # 1.  collect executable front‑layer gates under current mapping
             executable: List[tuple] = [
                 gd for gd in front_layer_gates if self.is_gate_executable(gd[0], qubit_mapping)
             ]
 
-            # 2A.  If some are executable, schedule them (physical labels) …
             if executable:
                 for gd in executable:
                     front_layer_gates.remove(gd)
@@ -101,7 +84,6 @@ class SABRE:
                         if not self.is_dependent_on_successors(succ, front_layer_gates):
                             front_layer_gates.append(succ)
 
-            # 2B.  …otherwise pick ONE best SWAP and continue loop
             else:
                 swap_candidates: List[Gate] = []
                 for gd in front_layer_gates:
@@ -133,10 +115,6 @@ class SABRE:
 
         return final_prog, qubit_mapping
 
-    # ---------------------------------------------------------------------
-    #  Executability helpers
-    # ---------------------------------------------------------------------
-
     def is_gate_executable(self, gate: Gate, mapping: Dict[int, int]) -> bool:
         """
         True iff the (two‑qubit) *gate* acts on adjacent *physical* qubits.
@@ -159,10 +137,6 @@ class SABRE:
             succ_qubits & {self._to_int(x) for x in fg[0].get_qubits()}
             for fg in front
         )
-
-    # ---------------------------------------------------------------------
-    #  Neighbour utilities (mostly unchanged)
-    # ---------------------------------------------------------------------
 
     def get_qubit_neighbours(
         self, ctrl_l: int, tgt_l: int, mapping: Dict[int, int]
@@ -192,10 +166,6 @@ class SABRE:
         decay[q2] += 0.001
         return decay
 
-    # ---------------------------------------------------------------------
-    #  Post‑run verification
-    # ---------------------------------------------------------------------
-
     def rewiring_correctness(self, program: Program) -> Dict[Gate, Tuple[int, int]]:
         """
         Return a dict {bad_gate: (q1, q2)} for every two‑qubit gate that is not
@@ -211,13 +181,8 @@ class SABRE:
                 bad[ins] = (q1, q2)
         return bad
 
-    # ---------------------------------------------------------------------
-    #  Mini helpers
-    # ---------------------------------------------------------------------
-
     @staticmethod
     def _logical_from_physical(p: int, mapping: Dict[int, int]) -> int:
-        # reverse‑lookup helper (O(n) but n is small for NISQ)
         for log, phys in mapping.items():
             if phys == p:
                 return log

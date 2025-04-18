@@ -1,4 +1,3 @@
-# integrated_main.py
 import time
 import numpy as np
 import networkx as nx
@@ -41,13 +40,12 @@ class QuantumBenchmark:
     
     def run_benchmark(self, circuit_func):
         """Execute benchmark with timing measurements"""
-        heuristics = ['original', 'hybrid_lexi', 'decay_weighted', 'critical', 'entanglement', 'lookahead']
+        # heuristics = ['original', 'hybrid_lexi', 'decay_weighted', 'critical', 'entanglement', 'lookahead']
+        heuristics = ['original', 'hybrid_lexi'] # Some heuristics may take too long to run
         
-        # Get circuit and its specific coupling graph
         circuit, coupling_graph = circuit_func()
         circuit_name = circuit_func.__name__.replace('create_', '')
         
-        # Visualize coupling graph
         # self._visualize_coupling_graph(coupling_graph, circuit_name)
         
         self.results[circuit_name] = {}
@@ -57,18 +55,15 @@ class QuantumBenchmark:
             timings = []
             gate_metrics = []
             
-            # Warmup runs
             for _ in range(self.warmup_runs):
                 self._execute_single_run(circuit.copy(), coupling_graph, self.heuristics[heuristic])
             
-            # Timed runs
             for _ in range(self.measured_runs):
                 start_time = time.perf_counter()
                 metrics = self._execute_single_run(circuit.copy(), coupling_graph, self.heuristics[heuristic])
                 timings.append(time.perf_counter() - start_time)
                 gate_metrics.append(metrics)
             
-            # Store results
             self.results[circuit_name][heuristic] = {
                 'time_stats': self._compute_stats(timings),
                 'gate_stats': self._compute_gate_stats(gate_metrics)
@@ -110,7 +105,6 @@ class QuantumBenchmark:
         temp_mapping = initial_mapping.copy()
         temp_circuit = circuit.copy()
         
-        # Forward-backward-forward passes
         for _ in range(2):
             front_layer, dag = preprocess_input_circuit(temp_circuit)
             final_program, final_mapping = sabre_proc.execute_sabre_algorithm(
@@ -160,15 +154,12 @@ class QuantumBenchmark:
     
     def generate_report(self, save_path=None):
         """Generate comprehensive performance report with improved visualizations"""
-        # Prepare data
         circuit_names = list(self.results.keys())
         heuristics = list(next(iter(self.results.values())).keys())
         
-        # Set up color palette
-        colors = plt.cm.tab10.colors  # Using a built-in colormap for distinct colors
-        bar_width = 0.8 / len(circuit_names)  # Dynamic width based on number of circuits
+        colors = plt.cm.tab10.colors 
+        bar_width = 0.8 / len(circuit_names) 
         
-        # Timing comparison plot - Grouped Bar Chart
         plt.figure(figsize=(14, 7))
         for i, circuit_name in enumerate(circuit_names):
             data = self.results[circuit_name]
@@ -191,7 +182,6 @@ class QuantumBenchmark:
             plt.savefig(f"{save_path}_timing.png", bbox_inches='tight', dpi=300)
         plt.show()
         
-        # Gate overhead plot - Grouped Bar Chart
         plt.figure(figsize=(14, 7))
         for i, circuit_name in enumerate(circuit_names):
             data = self.results[circuit_name]
@@ -212,7 +202,6 @@ class QuantumBenchmark:
             plt.savefig(f"{save_path}_overhead.png", bbox_inches='tight', dpi=300)
         plt.show()
 
-        # ---------- build one big DataFrame ----------
         records = []
         for circuit_name, heur_data in self.results.items():
             for heuristic_name, metrics in heur_data.items():
@@ -229,9 +218,8 @@ class QuantumBenchmark:
             .sort_index(axis=1)
         )
 
-        print(df.to_string(float_format="%.4f"))   # optional console view
+        print(df.to_string(float_format="%.4f"))
 
-        # ---------- render as a single image ----------
         fig, ax = plt.subplots(figsize=(1.8 + 1.2*len(df.columns),
                                         1.0 + 0.4*len(df)))
         ax.axis("off")
@@ -252,24 +240,17 @@ class QuantumBenchmark:
 
         plt.show()
 
-        # ---------- save PNG if caller supplied path ----------
         if save_path:
             png_file = f"{save_path}_table_time.png"
             fig.savefig(png_file, dpi=300, bbox_inches="tight")
-            print(f"Table image saved →  {png_file}")
 
                 
 
 if __name__ == "__main__":
-    # Initialize benchmark system
     benchmark = QuantumBenchmark(warmup_runs=3, measured_runs=10)
-    
-    # Run all benchmarks
-    print("Starting benchmark execution...")
 
-    benchmark.run_all_benchmarks()
+    print("Starting benchmark execution...")
     
-    # Generate comprehensive report
     benchmark.generate_report("sabre_benchmark_results")
     
     print("\nBenchmarking completed!")
