@@ -1,7 +1,6 @@
 from pyquil import Program
 from pyquil.gates import CNOT, H, SWAP, CZ, CPHASE
 import networkx as nx
-from qiskit import QuantumCircuit
 import numpy as np
 
 def create_4mod5_v1_22():
@@ -18,7 +17,6 @@ def create_4mod5_v1_22():
         circuit.inst(CNOT(2, 3))
         circuit.inst(CNOT(1, 3))
     
-    # Linear chain coupling graph
     coupling_graph = nx.path_graph(4)
     return circuit, coupling_graph
 
@@ -34,7 +32,6 @@ def create_mod5mils_65():
     circuit.inst(CNOT(0, 2))
     circuit.inst(CNOT(1, 3))
     
-    # Linear chain coupling graph
     coupling_graph = nx.path_graph(4)
     return circuit, coupling_graph
 
@@ -49,7 +46,6 @@ def create_decod24_v2_43():
         circuit.inst(CNOT(1, 3))
         circuit.inst(CNOT(2, 3))
     
-    # Linear chain coupling graph
     coupling_graph = nx.path_graph(4)
     return circuit, coupling_graph
 
@@ -64,41 +60,19 @@ def create_4gt13_92():
         circuit.inst(CNOT(0, 4))
         circuit.inst(CNOT(1, 3))
     
-    # 5-qubit linear chain
     coupling_graph = nx.path_graph(5)
-    return circuit, coupling_graph
-
-def create_ising_model_7():
-    """Create valid Ising model with explicit dependencies"""
-    n_qubits = 7
-    circuit = Program()
-    # Linear chain coupling graph
-    coupling_graph = nx.path_graph(n_qubits)
-    
-    # Create chained dependencies
-    for _ in range(3):
-        # Forward layer
-        for q in range(n_qubits - 1):
-            circuit.inst(CZ(q, q+1))
-        # Backward layer (create dependencies)
-        for q in range(n_qubits-1, 0, -1):
-            circuit.inst(CZ(q-1, q))
-    
     return circuit, coupling_graph
 
 def create_ising_model_10():
     """Create valid Ising model with explicit dependencies"""
     n_qubits = 10
     circuit = Program()
-    # Linear chain coupling graph
     coupling_graph = nx.path_graph(n_qubits)
     
-    # Create chained dependencies
     for _ in range(3):
         # Forward layer
         for q in range(n_qubits - 1):
             circuit.inst(CZ(q, q+1))
-        # Backward layer (create dependencies)
         for q in range(n_qubits-1, 0, -1):
             circuit.inst(CZ(q-1, q))
     
@@ -108,16 +82,46 @@ def create_ising_model_13():
     """Create valid Ising model with explicit dependencies"""
     n_qubits = 13
     circuit = Program()
-    # Linear chain coupling graph
     coupling_graph = nx.path_graph(n_qubits)
     
-    # Create chained dependencies
     for _ in range(3):
         # Forward layer
         for q in range(n_qubits - 1):
             circuit.inst(CZ(q, q+1))
-        # Backward layer (create dependencies)
         for q in range(n_qubits-1, 0, -1):
             circuit.inst(CZ(q-1, q))
     
     return circuit, coupling_graph
+
+def create_ising_model_16():
+    """Create valid Ising model with explicit dependencies"""
+    n_qubits = 16
+    circuit = Program()
+    coupling_graph = nx.path_graph(n_qubits)
+    
+    for _ in range(3):
+        # Forward layer
+        for q in range(n_qubits - 1):
+            circuit.inst(CZ(q, q+1))
+        for q in range(n_qubits-1, 0, -1):
+            circuit.inst(CZ(q-1, q))
+    
+    return circuit, coupling_graph
+
+
+def create_qft_10():
+    """Quantum Fourier Transform on 10 qubits."""
+    n_qubits = 10
+    prog = Program()
+
+    for k in range(n_qubits):
+        # prog.inst(H(k)) # Only include 2-qubit gates
+        for j in range(1, n_qubits - k):
+            angle = np.pi / (2 ** j)
+            prog.inst(CPHASE(angle, k + j, k))
+
+    for i in range(n_qubits // 2):
+        prog.inst(SWAP(i, n_qubits - i - 1))
+
+    coupling_graph = nx.path_graph(n_qubits)
+    return prog, coupling_graph

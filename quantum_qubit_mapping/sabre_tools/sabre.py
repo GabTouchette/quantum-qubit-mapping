@@ -1,186 +1,200 @@
+from typing import Dict, List, Tuple
 from networkx import Graph, DiGraph
 from pyquil import Program
 from pyquil.gates import Gate, SWAP
-from .heuristics import critical_path_heuristic, decay_weighted_distance_heuristic, entanglement_aware_heuristic, lookahead_window_heuristic
-from typing import Union
-
+from pyquil.quilbase import Qubit  
 import numpy as np
 
-class SABRE():
-    def __init__(self, distance_matrix: np.matrix, coupling_graph: Graph, heuristic='original') -> None:
-        """Initialize an instance of SABRE with distance matrix and coupling graph
-        """             
+class SABRE:
+    """
+    SABRE mapper as described in
+    “Tackling the Qubit Mapping Problem for NISQ‑Era Quantum Devices”
+    (Li et al., 2019).  After the rewrites, every instruction stored in the
+    output program is labelled with *physical* qubit indices.
+    """
+
+    def __init__(
+        self,
+        distance_matrix: np.ndarray,
+        coupling_graph: Graph,
+        heuristic: callable,
+    ) -> None:
         self.distance_matrix = distance_matrix
         self.coupling_graph = coupling_graph
-        self.heuristic = self.select_heuristic(heuristic)
+        self.heuristic = heuristic
 
-    def execute_sabre_algorithm(self, front_layer_gates: list, qubit_mapping: dict, circuit_dag: DiGraph) -> Union[Program, dict]:
-        """Applies SABRE algorithm proposed in "Tackling the Qubit Mapping Problem for NISQ-Era Quantum Devices"
-            by Gushu Li, Yufei Ding, and Yuan Xie (https://arxiv.org/pdf/1809.02573.pdf). This function returns 
-            final program with SWAPs inserted and a mapping with qubit dependencies resolved
+    @staticmethod
+    def _to_int(q) -> int:
+        """Helper: Qubit | int  →  int"""
+        return q.index if isinstance(q, Qubit) else int(q)
+
+    def _gate_qubits(self, gate: Gate) -> Tuple[int, ...]:
         """
-        decay_parameter = self.initialize_decay_parameter(qubit_mapping)
-        final_circuit = Program()
+        Return the operands of *gate* as plain ints (logical or physical,
+        depending on context).
+        """
+        return tuple(self._to_int(q) for q in gate.get_qubits())
 
-        while len(front_layer_gates) > 0:
-            execute_gate_list = list()
-            for gate_details in front_layer_gates:
-                if self.is_gate_executable(gate_details[0], qubit_mapping):
-                    execute_gate_list.append(gate_details)
-                    decay_parameter = self.initialize_decay_parameter(qubit_mapping)
+    def logical_to_physical_gate(self, gate: Gate, mapping: Dict[int, int]) -> Gate:
+        """
+        Copy *gate* but replace every logical operand with its current
+        physical location as per *mapping*.
+        """
+        phys_qubits = [Qubit(mapping[self._to_int(q)]) for q in gate.get_qubits()]
+        return Gate(name=gate.name, params=gate.params, qubits=phys_qubits)
 
-            if len(execute_gate_list) > 0:
-                for gate_details in execute_gate_list:
-                    front_layer_gates.remove(gate_details)
-                    final_circuit.inst(gate_details[0])
-                    for successor_details in circuit_dag.successors(gate_details):
-                        dependency_found = self.is_dependent_on_successors(successor_details, front_layer_gates)
-                        if not dependency_found:
-                            front_layer_gates.append(successor_details)
+    def inst_swap_physical(self, swap_gate_logical: Gate, mapping: Dict[int, int]) -> Gate:
+        """
+        Convert a logical‑layer SWAP into a physical‑layer SWAP **and update the
+        mapping in‑place**.
+        """
+        ql1, ql2 = self._gate_qubits(swap_gate_logical)
+        qp1, qp2 = mapping[ql1], mapping[ql2]
+        mapping[ql1], mapping[ql2] = qp2, qp1
+        return SWAP(qp1, qp2)
+
+    def execute_sabre_algorithm(
+        self,
+        front_layer_gates: List[tuple],
+        qubit_mapping: Dict[int, int],
+        circuit_dag: DiGraph,
+    ) -> Tuple[Program, Dict[int, int]]:
+        """
+        Core scheduling / swap‑insertion loop.  Returns a PyQuil `Program`
+        whose instructions are already expressed on physical qubits and the
+        *final* logical→physical mapping.
+        """
+        decay_parameter = [0.001] * len(qubit_mapping)
+        final_prog = Program()
+
+        while front_layer_gates:
+            executable: List[tuple] = [
+                gd for gd in front_layer_gates if self.is_gate_executable(gd[0], qubit_mapping)
+            ]
+
+            if executable:
+                for gd in executable:
+                    front_layer_gates.remove(gd)
+
+                    phys_gate = self.logical_to_physical_gate(gd[0], qubit_mapping)
+                    final_prog.inst(phys_gate)
+
+                    # push its successors whose all parents are now done
+                    for succ in circuit_dag.successors(gd):
+                        if not self.is_dependent_on_successors(succ, front_layer_gates):
+                            front_layer_gates.append(succ)
+
             else:
-                for gate_details in front_layer_gates:
-                    heuristic_score = dict()
-                    swap_candidate_list = list()
-                    f_gate = gate_details[0]
-                    f_qubits = list(f_gate.get_qubits())
-                    control_logical_qubit, target_logical_qubit = f_qubits[0], f_qubits[1]
-                    control_logical_qubit_neighbours, target_logical_qubit_neighbours = self.get_qubit_neighbours(control_logical_qubit, target_logical_qubit, qubit_mapping)
-                    for control_logical_qubit_neighbour in control_logical_qubit_neighbours:
-                        swap_candidate_list.append(SWAP(control_logical_qubit, control_logical_qubit_neighbour))
-                    for target_logical_qubit_neighbour in target_logical_qubit_neighbours:
-                        swap_candidate_list.append(SWAP(target_logical_qubit, target_logical_qubit_neighbour))
-                    for swap_gate in swap_candidate_list:
-                        temp_mapping = self.update_initial_mapping(swap_gate, qubit_mapping)
-                        swap_gate_score = self.heuristic(front_layer_gates, circuit_dag, temp_mapping, self.distance_matrix, swap_gate, decay_parameter)
-                        heuristic_score.update({swap_gate: swap_gate_score})
-                    min_score_swap_gate = self.find_min_score_swap_gate(heuristic_score, swap_candidate_list)
-                    final_circuit.inst(min_score_swap_gate)
-                    qubit_mapping = self.update_initial_mapping(min_score_swap_gate, qubit_mapping)
-                    decay_parameter = self.update_decay_parameter(min_score_swap_gate, decay_parameter)
-        return final_circuit, qubit_mapping
-                        
+                swap_candidates: List[Gate] = []
+                for gd in front_layer_gates:
+                    ctrl_l, tgt_l = self._gate_qubits(gd[0])
+                    nbs_c, nbs_t = self.get_qubit_neighbours(ctrl_l, tgt_l, qubit_mapping)
+                    swap_candidates += [SWAP(ctrl_l, n) for n in nbs_c]
+                    swap_candidates += [SWAP(tgt_l, n) for n in nbs_t]
 
-    def initialize_decay_parameter(self, qubit_mapping: dict) -> list:
-        """Initializes decay parameter for each logical qubit present in qubit mapping. This parameter
-        is required to determine if a SWAP acting on 2 qubits must be selected to insertion into the program
-        """        
-        return [0.001] * len(list(qubit_mapping.keys()))
+                scores = {
+                    sw: self.heuristic(
+                        front_layer_gates,
+                        circuit_dag,
+                        self.update_initial_mapping(sw, qubit_mapping),
+                        self.distance_matrix,
+                        sw,
+                        decay_parameter,
+                    )
+                    for sw in swap_candidates
+                }
+                best_swap_logical = min(scores, key=scores.get)
 
-    def is_gate_executable(self, gate: Gate, qubit_mapping: dict) -> bool:
-        """Determines if a 2 qubut gate is executable, i.e., whether the gate acts on qubits which are connected in
-        the coupling graph
-        """         
-        gate_qubits = list(gate.get_qubits())
-        logical_qubit_1, logical_qubit_2 = gate_qubits[0], gate_qubits[1]
-        physical_qubit_1, physical_qubit_2 = qubit_mapping.get(logical_qubit_1), qubit_mapping.get(logical_qubit_2)
-        return self.coupling_graph.has_edge(physical_qubit_1, physical_qubit_2)
+                best_swap_physical = self.inst_swap_physical(best_swap_logical, qubit_mapping)
+                final_prog.inst(best_swap_physical)
 
-    def is_dependent_on_successors(self, successor_details: tuple, front_layer_gates: list) -> bool:
-        """Determines if successors of an executed gate have qubit dependencies with gates in the front layer
-        """        
-        successor_gate = successor_details[0]
-        successor_qubits = set(successor_gate.get_qubits())
-        
-        for f_gate_details in front_layer_gates:
-            f_gate = f_gate_details[0]
-            f_qubits = set(f_gate.get_qubits())          
-            if successor_qubits.intersection(f_qubits):
-                return True
-        return False
+                decay_parameter = self.update_decay_parameter(best_swap_logical, decay_parameter)
 
-    def get_qubit_neighbours(self, control_logical_qubit: int, target_logical_qubit: int, qubit_mapping: dict) -> Union[list, list]:
-        """Returns list of neighbours from qubit mapping for input control and target logical qubits whose corresponding 
-        """        
-        control_physical_qubit, target_physical_qubit = self.get_physical_qubit(control_logical_qubit, target_logical_qubit, qubit_mapping)
-        control_physical_qubit_neighbours, target_physical_qubit_neighbours = self.get_physical_qubit_neighbours(control_physical_qubit, target_physical_qubit)
+                # re‑enter while loop with updated mapping
+                continue
 
-        control_logical_qubit_neighbours = self.get_logical_qubit_neighbours(control_physical_qubit_neighbours, qubit_mapping)
-        target_logical_qubit_neighbours = self.get_logical_qubit_neighbours(target_physical_qubit_neighbours, qubit_mapping)
+        return final_prog, qubit_mapping
 
-        return control_logical_qubit_neighbours, target_logical_qubit_neighbours
+    def is_gate_executable(self, gate: Gate, mapping: Dict[int, int]) -> bool:
+        """
+        True iff the (two‑qubit) *gate* acts on adjacent *physical* qubits.
 
-    def get_physical_qubit(self, control_logical_qubit: int, target_logical_qubit: int, qubit_mapping: dict) -> Union[int, int]:
-        """Returns corresponding physical qubits from qubit mapping for input logical qubits of a 2 qubit gate
-        """        
-        return qubit_mapping.get(control_logical_qubit), qubit_mapping.get(target_logical_qubit)
+        If the operands are present as KEYS in *mapping* we treat them as
+        logical qubits; otherwise we assume they are already physical.
+        """
+        q1, q2 = self._gate_qubits(gate)
 
-    def get_physical_qubit_neighbours(self, control_physical_qubit: int, target_logical_qubit: int) -> Union[list, list]:
-        """Returns neighbours from coupling graph for input physical qubits
-        """              
-        return self.coupling_graph.neighbors(control_physical_qubit), self.coupling_graph.neighbors(target_logical_qubit)
+        if q1 in mapping and q2 in mapping:  # logical
+            qp1, qp2 = mapping[q1], mapping[q2]
+        else:  # physical
+            qp1, qp2 = q1, q2
 
-    def get_logical_qubit_neighbours(self, physical_qubit_neighbours: list, qubit_mapping: dict) -> list:
-        """Returns corresponding logical qubits from qubit mapping for input physical qubits
-        """             
-        logical_qubits = list(qubit_mapping.keys())
-        physical_qubits = list(qubit_mapping.values())
-        logical_qubit_neighbours = list()
+        return self.coupling_graph.has_edge(qp1, qp2)
 
-        for qubit in physical_qubit_neighbours:
-            logical_qubit_neighbours.append(logical_qubits[physical_qubits.index(qubit)])
-        return logical_qubit_neighbours
+    def is_dependent_on_successors(self, succ: tuple, front: List[tuple]) -> bool:
+        succ_qubits = {self._to_int(q) for q in succ[0].get_qubits()}
+        return any(
+            succ_qubits & {self._to_int(x) for x in fg[0].get_qubits()}
+            for fg in front
+        )
 
-    def update_initial_mapping(self, swap_gate: Gate, qubit_mapping: dict) -> dict:
-        """Update qubit mapping between logical and physical if a SWAP gate is inserted in the program
-        """        
-        temp_mapping = qubit_mapping.copy()
-        swap_qubits = list(swap_gate.get_qubits())
-        p_qubit_1, p_qubit_2 = qubit_mapping.get(swap_qubits[0]), qubit_mapping.get(swap_qubits[1])
-        p_qubit_1, p_qubit_2 = p_qubit_2, p_qubit_1
-        temp_mapping.update({swap_qubits[0]: p_qubit_1, swap_qubits[1]: p_qubit_2})
-        return temp_mapping
+    def get_qubit_neighbours(
+        self, ctrl_l: int, tgt_l: int, mapping: Dict[int, int]
+    ) -> Tuple[List[int], List[int]]:
+        ctrl_p, tgt_p = mapping[ctrl_l], mapping[tgt_l]
+        nb_c, nb_t = (
+            list(self.coupling_graph.neighbors(ctrl_p)),
+            list(self.coupling_graph.neighbors(tgt_p)),
+        )
+        return (
+            [self._logical_from_physical(p, mapping) for p in nb_c],
+            [self._logical_from_physical(p, mapping) for p in nb_t],
+        )
 
-    def find_min_score_swap_gate(self, heuristic_score: dict, swap_candidate_list: list) -> Gate:
-        """Finds the SWAP gate with the minimum score for the heuristic function
-        """        
-        all_scores = list(heuristic_score.values())
-        min_score = min(all_scores)
-        min_score_swap_gate = swap_candidate_list[all_scores.index(min_score)]
-        return min_score_swap_gate
+    @staticmethod
+    def update_initial_mapping(sw: Gate, mapping: Dict[int, int]) -> Dict[int, int]:
+        """Return a *copy* of mapping after hypothetically applying *sw*."""
+        q1, q2 = sw.get_qubits()
+        new_map = mapping.copy()
+        new_map[q1], new_map[q2] = new_map[q2], new_map[q1]
+        return new_map
 
-    def update_decay_parameter(self, min_score_swap_gate: Gate, decay_parameter: list) -> list:
-        """Updates decay parameters for qubits on which SWAP gate with the minimum heuristic score is applied
-        """        
-        min_score_swap_qubits = list(min_score_swap_gate.get_qubits())
-        decay_parameter[min_score_swap_qubits[0]] = decay_parameter[min_score_swap_qubits[0]] + 0.001
-        decay_parameter[min_score_swap_qubits[1]] = decay_parameter[min_score_swap_qubits[1]] + 0.001
-        return decay_parameter
+    @staticmethod
+    def update_decay_parameter(sw: Gate, decay: List[float]) -> List[float]:
+        q1, q2 = sw.get_qubits()
+        decay[q1] += 0.001
+        decay[q2] += 0.001
+        return decay
 
-    
-    def rewiring_correctness(self, circuit: Program, qubit_mapping: dict) -> dict:
-        """Determines if the qubit mapping and SWAP inserted Program obtained from application 
-            of SABRE is able to resolve all qubit dependencies. This function can also be used to determine
-            if the initial input program requires the use of SABRE
-        """        
-        forbidden_gate = dict()
-        temp_mapping = qubit_mapping.copy()
-        for instruction in circuit.instructions:
-            if instruction.name == 'SWAP':
-                temp_mapping = self.update_initial_mapping(instruction, temp_mapping)
-            if not self.is_gate_executable(instruction, temp_mapping):
-                gate_qubits = list(instruction.get_qubits())
-                logical_qubit1, logical_qubit2 = gate_qubits[0], gate_qubits[1]
-                p_qubit1, p_qubit2 = temp_mapping.get(logical_qubit1), temp_mapping.get(logical_qubit2)
-                forbidden_gate.update({instruction: (p_qubit1, p_qubit2)})
+    def rewiring_correctness(self, program: Program) -> Dict[Gate, Tuple[int, int]]:
+        """
+        Return a dict {bad_gate: (q1, q2)} for every two‑qubit gate that is not
+        adjacent on the coupling graph.  The *program* is assumed to be
+        physical (i.e. produced by this class).
+        """
+        bad = {}
+        for ins in program.instructions:
+            if ins.name == "SWAP" or len(ins.get_qubits()) < 2:
+                continue
+            q1, q2 = self._gate_qubits(ins)
+            if not self.coupling_graph.has_edge(q1, q2):
+                bad[ins] = (q1, q2)
+        return bad
 
-        return forbidden_gate
+    @staticmethod
+    def _logical_from_physical(p: int, mapping: Dict[int, int]) -> int:
+        for log, phys in mapping.items():
+            if phys == p:
+                return log
+        raise KeyError(p)
             
-    def cnot_count(self, circuit: Program) -> int:
-        """Counts the number of CNOT gates in the input pyquil Program
-        """        
-        cnot_count = 0
-        for instruction in circuit.instructions:
-            if instruction.name == 'CNOT':
-                cnot_count = cnot_count + 1
-            if instruction.name == 'SWAP':
-                cnot_count = cnot_count + 3
-        return cnot_count
-    
-    def select_heuristic(self, name):
-        heuristics = {
-            'original': decay_weighted_distance_heuristic,
-            'critical': critical_path_heuristic,
-            'entanglement': entanglement_aware_heuristic,
-            'lookahead': lookahead_window_heuristic
-        }
-        return heuristics.get(name)
+    def cnot_count(self, program: Program) -> int:
+        """ Count the number of CNOT gates in the program.
+        """
+        count = 0
+        for inst in program:
+            if inst.name in ("CNOT", "CZ", "CPHASE"):
+                count += 1
+            elif inst.name == "SWAP":
+                count += 3
+        return count
