@@ -1,7 +1,6 @@
 from pyquil import Program
 from pyquil.gates import CNOT, H, SWAP, CZ, CPHASE
 import networkx as nx
-from qiskit import QuantumCircuit
 import numpy as np
 
 def create_4mod5_v1_22():
@@ -68,24 +67,6 @@ def create_4gt13_92():
     coupling_graph = nx.path_graph(5)
     return circuit, coupling_graph
 
-def create_ising_model_7():
-    """Create valid Ising model with explicit dependencies"""
-    n_qubits = 7
-    circuit = Program()
-    # Linear chain coupling graph
-    coupling_graph = nx.path_graph(n_qubits)
-    
-    # Create chained dependencies
-    for _ in range(3):
-        # Forward layer
-        for q in range(n_qubits - 1):
-            circuit.inst(CZ(q, q+1))
-        # Backward layer (create dependencies)
-        for q in range(n_qubits-1, 0, -1):
-            circuit.inst(CZ(q-1, q))
-    
-    return circuit, coupling_graph
-
 def create_ising_model_10():
     """Create valid Ising model with explicit dependencies"""
     n_qubits = 10
@@ -121,3 +102,48 @@ def create_ising_model_13():
             circuit.inst(CZ(q-1, q))
     
     return circuit, coupling_graph
+
+def create_ising_model_16():
+    """Create valid Ising model with explicit dependencies"""
+    n_qubits = 16
+    circuit = Program()
+    # Linear chain coupling graph
+    coupling_graph = nx.path_graph(n_qubits)
+    
+    # Create chained dependencies
+    for _ in range(3):
+        # Forward layer
+        for q in range(n_qubits - 1):
+            circuit.inst(CZ(q, q+1))
+        # Backward layer (create dependencies)
+        for q in range(n_qubits-1, 0, -1):
+            circuit.inst(CZ(q-1, q))
+    
+    return circuit, coupling_graph
+
+
+def create_qft_10():
+    """
+    Quantum Fourier Transform on 10 qubits.
+    • Qubit ordering after the routine is *reversed* (as in the textbook QFT).
+    • Coupling graph: linear chain of length‑10 (0‑1‑2‑…‑9).
+    Returns (program, coupling_graph).
+    """
+    n_qubits = 10
+    prog = Program()
+
+    # 1. QFT body
+    for k in range(n_qubits):
+        # prog.inst(H(k))
+        # controlled phases with decreasing angle
+        for j in range(1, n_qubits - k):
+            angle = np.pi / (2 ** j)
+            prog.inst(CPHASE(angle, k + j, k))   # control, target
+
+    # 2. Optional final qubit‑order reversal (so |q0 … q9> → reversed)
+    for i in range(n_qubits // 2):
+        prog.inst(SWAP(i, n_qubits - i - 1))
+
+    # Linear chain coupling graph
+    coupling_graph = nx.path_graph(n_qubits)
+    return prog, coupling_graph
