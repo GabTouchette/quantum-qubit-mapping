@@ -46,7 +46,7 @@ class QuantumBenchmark:
         circuit, coupling_graph = circuit_func()
         circuit_name = circuit_func.__name__.replace('create_', '')
         
-        # self._visualize_coupling_graph(coupling_graph, circuit_name)
+        self._visualize_coupling_graph(coupling_graph, circuit_name)
         
         self.results[circuit_name] = {}
         
@@ -250,6 +250,8 @@ if __name__ == "__main__":
     benchmark = QuantumBenchmark(warmup_runs=3, measured_runs=10)
 
     print("Starting benchmark execution...")
+    
+    benchmark.run_all_benchmarks()
     
     benchmark.generate_report("sabre_benchmark_results")
     
